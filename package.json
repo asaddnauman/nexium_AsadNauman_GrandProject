@@ -9,7 +9,6 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@shadcn/ui": "^0.4.1",
     "@supabase/auth-helpers-nextjs": "^0.8.1",
     "@supabase/supabase-js": "^2.39.5",
     "lucide-react": "^0.328.0",
