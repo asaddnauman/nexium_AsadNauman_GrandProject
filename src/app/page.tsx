@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { saveToMongoDB } from "@/lib/mongo"; // your MongoDB save function
-import saveToSupabase from "@/lib/supabase"; // default import assumed for supabase save
+import { saveToMongoDB } from "@/lib/mongo";
+// Removed: import { saveToSupabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
@@ -19,14 +19,12 @@ export default function Home() {
   const [jobRole, setJobRole] = useState<string>("");
   const [aiResume, setAiResume] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
   const router = useRouter();
 
   useEffect(() => {
     const getUser = async () => {
       const { data } = await supabase.auth.getUser();
-      if (!data.user) {
+      if (!data?.user?.email) {
         router.push("/login");
       } else {
         setUserEmail(data.user.email);
@@ -41,61 +39,36 @@ export default function Home() {
       return;
     }
 
-    setLoading(true);
+    const fileReader = new FileReader();
+    fileReader.onload = async () => {
+      const base64Pdf = fileReader.result as string;
 
-    try {
-      const fileReader = new FileReader();
+      const response = await fetch("https://your-n8n-webhook-url.com/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resume: base64Pdf,
+          role: jobRole,
+          email: userEmail,
+        }),
+      });
 
-      fileReader.onload = async () => {
-        const base64Pdf = fileReader.result as string;
+      const result = (await response.json()) as { tailoredResume?: string };
+      const tailoredResume = result.tailoredResume || "No resume returned.";
 
-        const n8nWebhookUrl =
-          process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL ||
-          "https://your-n8n-webhook-url.com/webhook";
+      setAiResume(tailoredResume);
 
-        const response = await fetch(n8nWebhookUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            resume: base64Pdf,
-            role: jobRole,
-            email: userEmail,
-          }),
-        });
+      await saveToMongoDB(base64Pdf, userEmail);
+      // Removed: await saveToSupabase(tailoredResume, jobRole, userEmail);
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          toast.error("Failed to generate AI resume. Try again later.");
-          console.error("n8n webhook error:", errorText);
-          setLoading(false);
-          return;
-        }
+      toast.success("AI Resume generated & saved!");
+    };
 
-        const result = await response.json();
-        const tailoredResume = result.tailoredResume || "No resume returned.";
-
-        setAiResume(tailoredResume);
-
-        await saveToMongoDB(base64Pdf, userEmail);
-        await saveToSupabase(tailoredResume, jobRole, userEmail);
-
-        toast.success("AI Resume generated & saved!");
-        setLoading(false);
-      };
-
-      fileReader.readAsDataURL(pdfFile);
-    } catch (error) {
-      toast.error("Unexpected error occurred. Please try again.");
-      console.error(error);
-      setLoading(false);
-    }
+    fileReader.readAsDataURL(pdfFile);
   };
 
   return (
-    <div
-      className="min-h-screen bg-cover bg-center p-10 font-[Gabriola] text-white"
-      style={{ backgroundImage: "url('/bg.jpg')" }}
-    >
+    <div className="min-h-screen bg-cover bg-center p-10 font-[Gabriola] bg-[url('/bg.jpg')] text-white">
       <h1 className="text-[72px] text-center mb-8">Resume Tailor</h1>
 
       <div className="max-w-xl mx-auto space-y-6">
@@ -104,28 +77,25 @@ export default function Home() {
           accept=".pdf"
           onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
           className="text-[20px] font-[Gabriola]"
-          disabled={loading}
         />
         <Input
           placeholder="Enter job role (e.g., Software Engineer)"
           value={jobRole}
           onChange={(e) => setJobRole(e.target.value)}
           className="text-[20px] font-[Gabriola]"
-          disabled={loading}
         />
         <Button
           onClick={handleUpload}
           className="w-full text-[24px] font-[Gabriola]"
-          disabled={loading}
         >
-          {loading ? "Generating..." : "Generate AI Resume"}
+          Generate AI Resume
         </Button>
       </div>
 
       {aiResume && (
         <div className="max-w-4xl mx-auto mt-12 p-6 bg-white/10 rounded-xl shadow-xl backdrop-blur text-[20px] whitespace-pre-wrap">
           <h2 className="text-[40px] mb-4">Tailored Resume:</h2>
-          <pre>{aiResume}</pre>
+          <p>{aiResume}</p>
         </div>
       )}
     </div>
