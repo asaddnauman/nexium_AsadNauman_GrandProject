@@ -1,103 +1,133 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { saveToMongoDB } from "@/lib/mongo"; // your MongoDB save function
+import saveToSupabase from "@/lib/supabase"; // default import assumed for supabase save
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [jobRole, setJobRole] = useState<string>("");
+  const [aiResume, setAiResume] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const router = useRouter();
+
+  useEffect(() => {
+    const getUser = async () => {
+      const { data } = await supabase.auth.getUser();
+      if (!data.user) {
+        router.push("/login");
+      } else {
+        setUserEmail(data.user.email);
+      }
+    };
+    getUser();
+  }, [router]);
+
+  const handleUpload = async () => {
+    if (!pdfFile || !jobRole || !userEmail) {
+      toast.error("Please upload resume, enter job role, and log in.");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const fileReader = new FileReader();
+
+      fileReader.onload = async () => {
+        const base64Pdf = fileReader.result as string;
+
+        const n8nWebhookUrl =
+          process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL ||
+          "https://your-n8n-webhook-url.com/webhook";
+
+        const response = await fetch(n8nWebhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            resume: base64Pdf,
+            role: jobRole,
+            email: userEmail,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          toast.error("Failed to generate AI resume. Try again later.");
+          console.error("n8n webhook error:", errorText);
+          setLoading(false);
+          return;
+        }
+
+        const result = await response.json();
+        const tailoredResume = result.tailoredResume || "No resume returned.";
+
+        setAiResume(tailoredResume);
+
+        await saveToMongoDB(base64Pdf, userEmail);
+        await saveToSupabase(tailoredResume, jobRole, userEmail);
+
+        toast.success("AI Resume generated & saved!");
+        setLoading(false);
+      };
+
+      fileReader.readAsDataURL(pdfFile);
+    } catch (error) {
+      toast.error("Unexpected error occurred. Please try again.");
+      console.error(error);
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div
+      className="min-h-screen bg-cover bg-center p-10 font-[Gabriola] text-white"
+      style={{ backgroundImage: "url('/bg.jpg')" }}
+    >
+      <h1 className="text-[72px] text-center mb-8">Resume Tailor</h1>
+
+      <div className="max-w-xl mx-auto space-y-6">
+        <Input
+          type="file"
+          accept=".pdf"
+          onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
+          className="text-[20px] font-[Gabriola]"
+          disabled={loading}
+        />
+        <Input
+          placeholder="Enter job role (e.g., Software Engineer)"
+          value={jobRole}
+          onChange={(e) => setJobRole(e.target.value)}
+          className="text-[20px] font-[Gabriola]"
+          disabled={loading}
+        />
+        <Button
+          onClick={handleUpload}
+          className="w-full text-[24px] font-[Gabriola]"
+          disabled={loading}
+        >
+          {loading ? "Generating..." : "Generate AI Resume"}
+        </Button>
+      </div>
+
+      {aiResume && (
+        <div className="max-w-4xl mx-auto mt-12 p-6 bg-white/10 rounded-xl shadow-xl backdrop-blur text-[20px] whitespace-pre-wrap">
+          <h2 className="text-[40px] mb-4">Tailored Resume:</h2>
+          <pre>{aiResume}</pre>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      )}
     </div>
   );
 }
