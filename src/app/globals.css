@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Gabriola Font */
+@font-face {
+  font-family: "Gabriola";
+  src: url("/fonts/Gabriola.ttf") format("truetype");
+}
+
+/* Global Body Styles */
+body {
+  font-family: "Gabriola", cursive;
+  background: linear-gradient(to bottom right, #0f2027, #203a43, #2c5364);
+  color: white;
+  font-size: 72px;
+}
